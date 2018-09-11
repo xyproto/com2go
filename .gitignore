@@ -10,3 +10,10 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+com2go
+test/
+*.bak
+*.swp
+*.tmp
+*~
