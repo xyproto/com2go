@@ -3,14 +3,15 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
-	"os"
 )
 
 const disasmCommand = "/usr/bin/ndisasm -a -b 16 %s | cut -b29-"
 
-var seen []string
+// Encountered registers, filled with the ones declared at the top
+var seen = []string{"a", "b", "c", "d", "es", "cs", "di", "ds"}
 
 func shellCommand(command string) (string, error) {
 	var (
@@ -62,20 +63,20 @@ func has(sl []string, s string) bool {
 
 func shortName(register string) string {
 	switch register {
-		case "al", "ah", "ax":
-			return "a"
-		case "bl", "bh", "bx":
-			return "b"
-		case "cl", "ch", "cx":
-			return "c"
-		case "dl", "dh", "dx":
-			return "d"
+	case "al", "ah", "ax":
+		return "a"
+	case "bl", "bh", "bx":
+		return "b"
+	case "cl", "ch", "cx":
+		return "c"
+	case "dl", "dh", "dx":
+		return "d"
 	}
 	return register
 }
 
 // TODO: Add all of them
-var registers = []string{"al", "ah", "ax", "bl", "bh", "bx", "cl", "ch", "cx", "dl", "dh", "dx", "es", "cs", "di"}
+var registers = []string{"al", "ah", "ax", "bl", "bh", "bx", "cl", "ch", "cx", "dl", "dh", "dx", "es", "cs", "di", "ds"}
 
 func isRegister(register string) bool {
 	return has(registers, register)
@@ -98,12 +99,11 @@ func getVal(s string) string {
 	if isRegister(s) {
 		r := shortName(s)
 		if !has(seen, r) {
+			// TODO: Log a warning to stderr?
 			return "0"
 		}
-		fmt.Println("HAS SEEN " + r + " BEFORE!")
-		return r + ".Get()"
+		return "reg." + r + ".Get()"
 	}
-	fmt.Println("GETVAL", s)
 	return s
 }
 
@@ -112,7 +112,7 @@ func interpret(s string) string {
 		return s
 	}
 	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
-		registerOrMemory := s[1:len(s)-1]
+		registerOrMemory := s[1 : len(s)-1]
 		if isRegister(registerOrMemory) {
 			retval := "mem[" + getVal(registerOrMemory) + "]"
 			if !has(seen, registerOrMemory) {
@@ -124,18 +124,18 @@ func interpret(s string) string {
 			return "mem[mem[" + registerOrMemory + "]]"
 		}
 	}
-	fmt.Println("INTERPRET", s)
+	//fmt.Println("INTERPRET", s)
 	return s
 }
 
 func main() {
-	fn := "example.com"
+	fn := "life.com"
 	if len(os.Args) > 1 {
 		fn = os.Args[1]
 	}
 	_, err := os.Stat(fn)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not find " + fn)
+		fmt.Fprintln(os.Stderr, "Could not find "+fn)
 		os.Exit(1)
 	}
 	data, err := disasm(fn)
@@ -148,56 +148,26 @@ func main() {
 
 import (
 	"fmt"
-	"encoding/binary"
 	"time"
+	dos "github.com/xyproto/interrupts"
 )
 
-var frameUpdate = 100 * time.Millisecond
+var (
+	reg dos.Registers
+	mem dos.Memory
+	stack dos.Stack
+)
 
-type PixelBuffer []uint8 // 320x200
-
-type Register struct {
-	l uint8
-	h uint8
-}
-
-func (r *Register) SetL(l uint8) {
-	r.l = l
-}
-
-func (r *Register) SetH(h uint8) {
-	r.h = h
-}
-
-func (r *Register) Set(w uint16) {
-	bs := make([]uint8, 2)
-	binary.LittleEndian.PutUint16(bs, w)
-	r.l, r.h = bs[0], bs[1]
-}
-
-func (r *Register) SetR(e *Register) {
-	r.l = e.l
-	r.h = e.h
-}
-
-func (r *Register) Get() uint16 {
-	return uint16(r.l) + uint16(r.h << 1)
-}
-
-func interrupt(n int) {
-	fmt.Printf("CALLING INTERRUPT %d\n", n)
-}
-
-func draw(pixelbuffer PixelBuffer) {
+func draw(pixelbuffer dos.PixelBuffer) {
 	fmt.Println("UPDATING SCREEN")
 }
 
 func main() {
-	var mem [640*1024]uint8
+	frameUpdate := 100 * time.Millisecond
 	go func() {
 		// TODO: Also read from keyboard
 		// TODO: Support a palette as well
-		draw(PixelBuffer(mem[0xa000:0xa000+(320*200)]))
+		draw(dos.PixelBuffer(mem[0xa000:0xa000+(320*200)]))
 		time.Sleep(frameUpdate)
 	}()
 `
@@ -205,7 +175,7 @@ func main() {
 		if strings.HasPrefix(line, "mov") {
 			fields := strings.Split(line[3:], ",")
 			if len(fields) > 2 {
-				fmt.Fprintln(os.Stderr, "Too many commas: " + line)
+				fmt.Fprintln(os.Stderr, "Too many commas: "+line)
 				os.Exit(1)
 			}
 			registerOrMemory := strings.TrimSpace(fields[0])
@@ -215,18 +185,18 @@ func main() {
 				register := registerOrMemory
 				r := shortName(register) // al, ah, ax -> a
 				if !has(seen, r) {
-					gocode += "\t" + r + " := &Register{}" + "\n"
+					gocode += "\t" + r + " := &dos.Register{}" + "\n"
 					seen = append(seen, r)
 				}
 				if isRegister(valueOrRegisterOrMemory) {
-					gocode += "\t" + r + ".SetR(" + interpret(valueOrRegisterOrMemory) + ")" + " // " + line + "\n"
+					gocode += "\treg." + r + ".SetR(" + interpret(valueOrRegisterOrMemory) + ")" + " // " + line + "\n"
 				} else {
 					if strings.HasSuffix(register, "h") {
-						gocode += "\t" + r + ".SetH(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
+						gocode += "\treg." + r + ".SetH(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
 					} else if strings.HasSuffix(register, "l") {
-						gocode += "\t" + r + ".SetL(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
+						gocode += "\treg." + r + ".SetL(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
 					} else {
-						gocode += "\t" + r + ".Set(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
+						gocode += "\treg." + r + ".Set(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
 					}
 				}
 			} else {
@@ -235,10 +205,26 @@ func main() {
 		} else if strings.HasPrefix(line, "int") {
 			fields := strings.Split(line, " ")
 			if len(fields) < 2 {
-				fmt.Fprintln(os.Stderr, "Too few arguments to int: " + line)
+				fmt.Fprintln(os.Stderr, "Too few arguments to int: "+line)
 				os.Exit(1)
 			}
-			gocode += "\tinterrupt(" + fields[1] + ") // " + line + "\n"
+			gocode += "\tdos.Interrupt(" + fields[1] + ", &reg, &mem, &stack) // " + line + "\n"
+		} else if strings.HasPrefix(line, "push") {
+			fields := strings.Split(line, " ")
+			if len(fields) < 2 {
+				fmt.Fprintln(os.Stderr, "Too few arguments to push: "+line)
+				os.Exit(1)
+			}
+			valueOrRegisterOrMemory := fields[1]
+			//fmt.Println(fields[1], isRegister(fields[1]))
+			if isRegister(valueOrRegisterOrMemory) {
+				r := shortName(valueOrRegisterOrMemory)
+				gocode += "\tstack = append(stack, reg." + r + ".Get()) // " + line + "\n"
+			} else if isValue(valueOrRegisterOrMemory) {
+				panic("PUSHING VALUES DIRECTLY TO THE STACK IS NOT IMPLEMENTED YET")
+			} else {
+				panic("PUSHING MEMORY LOCATIONS TO THE STACK IS NOT IMPLEMENTED YET: " + line)
+			}
 		} else {
 			gocode += "\t// " + line + "\n"
 		}
