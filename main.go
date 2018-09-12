@@ -75,6 +75,12 @@ func shortName(register string) string {
 	return register
 }
 
+// Return the Registers method needed to call to get the Register
+// struct in question
+func rFuncName(register string) string {
+	return strings.ToUpper(shortName(register)) + "()"
+}
+
 // TODO: Add all of them
 var registers = []string{"al", "ah", "ax", "bl", "bh", "bx", "cl", "ch", "cx", "dl", "dh", "dx", "es", "cs", "di", "ds"}
 
@@ -102,7 +108,7 @@ func getVal(s string) string {
 			// TODO: Log a warning to stderr?
 			return "0"
 		}
-		return "reg." + r + ".Get()"
+		return "reg." + rFuncName(s) + ".Get()"
 	}
 	return s
 }
@@ -184,19 +190,21 @@ func main() {
 			if isRegister(registerOrMemory) {
 				register := registerOrMemory
 				r := shortName(register) // al, ah, ax -> a
+				rfn := rFuncName(register)
 				if !has(seen, r) {
+					panic("TO IMPLEMENT")
 					gocode += "\t" + r + " := &dos.Register{}" + "\n"
 					seen = append(seen, r)
 				}
 				if isRegister(valueOrRegisterOrMemory) {
-					gocode += "\treg." + r + ".SetR(" + interpret(valueOrRegisterOrMemory) + ")" + " // " + line + "\n"
+					gocode += "\treg." + rfn + ".SetR(" + interpret(valueOrRegisterOrMemory) + ")" + " // " + line + "\n"
 				} else {
 					if strings.HasSuffix(register, "h") {
-						gocode += "\treg." + r + ".SetH(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
+						gocode += "\treg." + rfn + ".SetH(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
 					} else if strings.HasSuffix(register, "l") {
-						gocode += "\treg." + r + ".SetL(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
+						gocode += "\treg." + rfn + ".SetL(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
 					} else {
-						gocode += "\treg." + r + ".Set(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
+						gocode += "\treg." + rfn + ".Set(" + interpret(valueOrRegisterOrMemory) + ") // " + line + "\n"
 					}
 				}
 			} else {
@@ -218,8 +226,8 @@ func main() {
 			valueOrRegisterOrMemory := fields[1]
 			//fmt.Println(fields[1], isRegister(fields[1]))
 			if isRegister(valueOrRegisterOrMemory) {
-				r := shortName(valueOrRegisterOrMemory)
-				gocode += "\tstack = append(stack, reg." + r + ".Get()) // " + line + "\n"
+				rfn := rFuncName(valueOrRegisterOrMemory)
+				gocode += "\tstack = append(stack, reg." + rfn + ".Get()) // " + line + "\n"
 			} else if isValue(valueOrRegisterOrMemory) {
 				panic("PUSHING VALUES DIRECTLY TO THE STACK IS NOT IMPLEMENTED YET")
 			} else {
