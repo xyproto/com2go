@@ -81,8 +81,7 @@ func rFuncName(register string) string {
 	return strings.ToUpper(shortName(register)) + "()"
 }
 
-// TODO: Add all of them
-var registers = []string{"al", "ah", "ax", "bl", "bh", "bx", "cl", "ch", "cx", "dl", "dh", "dx", "es", "cs", "di", "ds"}
+var registers = []string{"al", "ah", "ax", "bl", "bh", "bx", "cl", "ch", "cx", "dl", "dh", "dx", "si", "di", "sp", "bp", "ip", "cs", "es", "ds", "fs", "gs", "ss"}
 
 func isRegister(register string) bool {
 	return has(registers, register)
@@ -162,20 +161,13 @@ var (
 	reg dos.Registers
 	mem dos.Memory
 	stack dos.Stack
+	flags dos.Flags
+	state = &dos.State{&reg, &mem, &stack, &flags}
 )
 
-func draw(pixelbuffer dos.PixelBuffer) {
-	fmt.Println("UPDATING SCREEN")
-}
-
 func main() {
-	frameUpdate := 100 * time.Millisecond
-	go func() {
-		// TODO: Also read from keyboard
-		// TODO: Support a palette as well
-		draw(dos.PixelBuffer(mem[0xa000:0xa000+(320*200)]))
-		time.Sleep(frameUpdate)
-	}()
+	dos.Init()
+	go dos.Loop(&mem)
 `
 	for _, line := range mapS(lines, noCommentStripped) {
 		if strings.HasPrefix(line, "mov") {
@@ -216,7 +208,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "Too few arguments to int: "+line)
 				os.Exit(1)
 			}
-			gocode += "\tdos.Interrupt(" + fields[1] + ", &reg, &mem, &stack) // " + line + "\n"
+			gocode += "\tdos.Interrupt(" + fields[1] + ", state) // " + line + "\n"
 		} else if strings.HasPrefix(line, "push") {
 			fields := strings.Split(line, " ")
 			if len(fields) < 2 {
@@ -224,19 +216,35 @@ func main() {
 				os.Exit(1)
 			}
 			valueOrRegisterOrMemory := fields[1]
-			//fmt.Println(fields[1], isRegister(fields[1]))
 			if isRegister(valueOrRegisterOrMemory) {
 				rfn := rFuncName(valueOrRegisterOrMemory)
 				gocode += "\tstack = append(stack, reg." + rfn + ".Get()) // " + line + "\n"
 			} else if isValue(valueOrRegisterOrMemory) {
-				panic("PUSHING VALUES DIRECTLY TO THE STACK IS NOT IMPLEMENTED YET")
+				panic("PUSHING VALUES DIRECTLY TO THE STACK IS NOT IMPLEMENTED YET: " + line)
 			} else {
 				panic("PUSHING MEMORY LOCATIONS TO THE STACK IS NOT IMPLEMENTED YET: " + line)
+			}
+		} else if strings.HasPrefix(line, "pop") {
+			fields := strings.Split(line, " ")
+			if len(fields) < 2 {
+				fmt.Fprintln(os.Stderr, "Too few arguments to pop: "+line)
+				os.Exit(1)
+			}
+			valueOrRegisterOrMemory := fields[1]
+			if isRegister(valueOrRegisterOrMemory) {
+				rfn := rFuncName(valueOrRegisterOrMemory)
+				gocode += "\treg." + rfn + ".Set(stack[len(stack)-1]); "
+				gocode += "stack = stack[:len(stack)-1] // " + line + "\n"
+			} else if isValue(valueOrRegisterOrMemory) {
+				panic("POPPING TO A VALUE IS NOT POSSIBLE: " + line)
+			} else {
+				panic("POPPING TO A MEMORY LOCATION IS NOT IMPLEMENTED: " + line)
 			}
 		} else {
 			gocode += "\t// " + line + "\n"
 		}
 	}
+	gocode += "\tdos.Quit()\n"
 	gocode += "}\n"
 	fmt.Println(gocode)
 }
